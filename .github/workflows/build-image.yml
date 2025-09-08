@@ -1,0 +1,66 @@
+name: Build branded govorun.click image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'branding/**'
+      - 'patches/**'
+      - 'scripts/**'
+      - '.github/workflows/build-image.yml'
+
+env:
+  IMAGE: ghcr.io/il53n/govorun.click
+  UPSTREAM_REPO: lobehub/lobe-chat
+  # Pin a version/tag or branch of upstream:
+  UPSTREAM_REF: main   # e.g. v1.0.0 when you want to pin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout branding repo
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream LobeChat
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: upstream
+
+      - name: Overlay branding
+        run: |
+          ./scripts/overlay.sh upstream
+          echo "== Overlay complete =="
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract short SHA
+        id: meta
+        run: echo "sha_short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: upstream
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ env.UPSTREAM_REF }}-${{ steps.meta.outputs.sha_short }}
+          # If upstream Dockerfile needs build args, add them here:
+          # build-args: |
+          #   NEXT_PUBLIC_SOME_BRAND=Acme
